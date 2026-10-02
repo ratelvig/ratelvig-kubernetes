@@ -1,0 +1,24 @@
+---
+# Global configuration across all hosts
+
+ansible_user: root
+ansible_python_interpreter: /usr/bin/python3
+
+# System timezone and locale
+system_timezone: "UTC"
+system_update_packages: true
+
+# Extra packages required on all nodes
+common_packages:
+  - curl
+  - ca-certificates
+  - iptables
+  - ebtables
+  - ethtool
+  - socat
+  - conntrack
+  - ipset
+  - tar
+  - sudo
+  - apparmor
+  - apparmor-utils

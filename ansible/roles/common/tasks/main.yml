@@ -1,0 +1,67 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == 'Debian'
+
+- name: Install prerequisite system packages
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Configure kernel modules for Kubernetes
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Load kernel modules
+
+- name: Load kernel modules immediately
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+  ignore_errors: true # In unprivileged LXC without host module loading privilege
+
+- name: Configure sysctl parameters for Kubernetes networking
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+    sysctl_file: /etc/sysctl.d/99-kubernetes-cri.conf
+  loop:
+    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { name: 'net.ipv4.ip_forward', value: '1' }
+  ignore_errors: true # In LXC containers where host manages bridge sysctl
+
+- name: Disable swap memory
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+  changed_when: false
+
+- name: Remove swap entry from fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s+.*)$'
+    line: '# \1'
+    backrefs: yes
+    state: present
+
+- name: Ensure /dev/kmsg symlink exists in LXC
+  ansible.builtin.file:
+    src: /dev/console
+    dest: /dev/kmsg
+    state: link
+    force: false
+  when: ansible_virtualization_type is defined and ansible_virtualization_type == 'lxc'
+  ignore_errors: true

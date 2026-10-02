@@ -1,0 +1,15 @@
+---
+# K3s Server (Control Plane) Specific Configuration
+
+# Embedded etcd / datastore (enabled when multiple servers configured)
+k3s_server_embedded_etcd: "{{ groups['k3s_servers'] | length > 1 }}"
+
+# Server datastore endpoint (optional for external DB like postgres/mysql)
+# k3s_datastore_endpoint: "postgres://user:password@192.168.2.5:5432/k3s"
+
+# Node labels and taints for control plane
+k3s_server_node_labels:
+  - "node.kubernetes.io/type=master"
+
+# If true, prevents normal pods from scheduling on control plane unless toleration set
+k3s_server_disable_workloads: false

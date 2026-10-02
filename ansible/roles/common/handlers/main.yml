@@ -1,0 +1,5 @@
+---
+- name: Load kernel modules
+  ansible.builtin.command: systemctl restart systemd-modules-load.service
+  changed_when: false
+  ignore_errors: true

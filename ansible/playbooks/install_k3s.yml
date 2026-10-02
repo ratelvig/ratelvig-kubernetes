@@ -1,0 +1,68 @@
+---
+# ==============================================================================
+# Master Playbook: Deploy K3s Kubernetes Cluster on Proxmox VE
+# ==============================================================================
+
+# Play 1: Common Node Preparation
+- name: Prepare all cluster nodes with prerequisites
+  hosts: k3s_cluster
+  gather_facts: yes
+  become: yes
+  pre_tasks:
+    - name: Load encrypted vault variables if available
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../vault/secrets.yml"
+      ignore_errors: yes
+  roles:
+    - role: common
+
+# Play 2: Provision & Configure Primary Server (Control Plane)
+- name: Install and configure K3s control-plane servers
+  hosts: k3s_servers
+  gather_facts: yes
+  become: yes
+  pre_tasks:
+    - name: Load encrypted vault variables if available
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../vault/secrets.yml"
+      ignore_errors: yes
+  roles:
+    - role: install_k3s_server
+
+# Play 3: Provision & Configure Worker Agents
+- name: Install and configure K3s worker agents
+  hosts: k3s_agents
+  gather_facts: yes
+  become: yes
+  pre_tasks:
+    - name: Load encrypted vault variables if available
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../vault/secrets.yml"
+      ignore_errors: yes
+  roles:
+    - role: install_k3s_agent
+
+# Play 4: Cluster Status Verification
+- name: Verify cluster health and print node list
+  hosts: "{{ groups['k3s_servers'][0] }}"
+  gather_facts: no
+  become: yes
+  tasks:
+    - name: Query Kubernetes cluster nodes
+      ansible.builtin.command: /usr/local/bin/k3s kubectl get nodes -o wide
+      register: kubectl_nodes_result
+      changed_when: false
+
+    - name: Display Kubernetes Cluster Nodes
+      ansible.builtin.debug:
+        msg: "{{ kubectl_nodes_result.stdout_lines }}"
+
+    - name: Display Kubeconfig Local Path Reminder
+      ansible.builtin.debug:
+        msg:
+          - "===================================================================="
+          - " K3s Cluster deployed successfully!"
+          - " Kubeconfig saved to: {{ k3s_kubeconfig_local_path }}"
+          - " Test locally via: export KUBECONFIG={{ k3s_kubeconfig_local_path }}"
+          - "                   kubectl get nodes"
+          - "===================================================================="

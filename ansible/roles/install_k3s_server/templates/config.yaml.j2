@@ -1,0 +1,44 @@
+# K3s Server Configuration File
+# Managed by Ansible - do not edit manually
+
+write-kubeconfig-mode: "0644"
+token: "{{ k3s_cluster_token }}"
+
+{% if k3s_server_embedded_etcd and inventory_hostname == groups['k3s_servers'][0] %}
+cluster-init: true
+{% elif k3s_server_embedded_etcd and inventory_hostname != groups['k3s_servers'][0] %}
+server: "https://{{ hostvars[groups['k3s_servers'][0]]['ansible_host'] }}:6443"
+{% endif %}
+
+{% if k3s_datastore_endpoint is defined and k3s_datastore_endpoint %}
+datastore-endpoint: "{{ k3s_datastore_endpoint }}"
+{% endif %}
+
+cluster-cidr: "{{ k3s_cluster_cidr }}"
+service-cidr: "{{ k3s_service_cidr }}"
+cluster-dns: "{{ k3s_cluster_dns }}"
+flannel-backend: "{{ k3s_flannel_backend }}"
+
+tls-san:
+{% for san in k3s_tls_sans %}
+  - "{{ san }}"
+{% endfor %}
+
+{% if k3s_disable_components is defined and k3s_disable_components | length > 0 %}
+disable:
+{% for item in k3s_disable_components %}
+  - "{{ item }}"
+{% endfor %}
+{% endif %}
+
+{% if k3s_server_node_labels is defined and k3s_server_node_labels | length > 0 %}
+node-label:
+{% for label in k3s_server_node_labels %}
+  - "{{ label }}"
+{% endfor %}
+{% endif %}
+
+{% if k3s_server_disable_workloads | default(false) %}
+node-taint:
+  - "CriticalAddonsOnly=true:NoSchedule"
+{% endif %}

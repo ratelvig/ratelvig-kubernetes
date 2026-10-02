@@ -1,0 +1,12 @@
+# K3s Agent Configuration File
+# Managed by Ansible - do not edit manually
+
+server: "{{ k3s_server_url }}"
+token: "{{ k3s_cluster_token }}"
+
+{% if k3s_agent_node_labels is defined and k3s_agent_node_labels | length > 0 %}
+node-label:
+{% for label in k3s_agent_node_labels %}
+  - "{{ label }}"
+{% endfor %}
+{% endif %}

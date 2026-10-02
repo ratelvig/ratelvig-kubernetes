@@ -1,0 +1,73 @@
+---
+- name: Create K3s configuration directory
+  ansible.builtin.file:
+    path: "{{ k3s_server_config_dir }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy K3s server configuration file
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ k3s_server_config_dir }}/config.yaml"
+    mode: '0640'
+    owner: root
+    group: root
+  notify: Restart k3s service
+
+- name: Check if K3s binary is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary_stat
+
+- name: Download K3s installation script
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_script_url }}"
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+  when: not k3s_binary_stat.stat.exists
+
+- name: Run K3s server installer
+  ansible.builtin.command: /tmp/k3s-install.sh
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "server"
+  when: not k3s_binary_stat.stat.exists
+  changed_when: true
+
+- name: Ensure K3s server service is enabled and started
+  ansible.builtin.systemd:
+    name: "{{ k3s_server_service_name }}"
+    state: started
+    enabled: yes
+
+- name: Wait for K3s API server port (6443) to become available
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 6443
+    delay: 3
+    timeout: 120
+
+- name: Wait for control plane node to be Ready
+  ansible.builtin.command: /usr/local/bin/k3s kubectl get node {{ inventory_hostname }}
+  register: node_status
+  until: '" Ready" in node_status.stdout'
+  retries: 20
+  delay: 5
+  changed_when: false
+
+- name: Fetch kubeconfig from primary server node
+  ansible.builtin.slurp:
+    src: /etc/rancher/k3s/k3s.yaml
+  register: remote_kubeconfig
+  when: inventory_hostname == groups['k3s_servers'][0]
+
+- name: Write adjusted kubeconfig to local workspace
+  ansible.builtin.copy:
+    content: "{{ remote_kubeconfig.content | b64decode | regex_replace('127\\.0\\.0\\.1', ansible_host) | regex_replace('localhost', ansible_host) }}"
+    dest: "{{ k3s_kubeconfig_local_path }}"
+    mode: '0600'
+  delegate_to: localhost
+  become: no
+  when: inventory_hostname == groups['k3s_servers'][0]

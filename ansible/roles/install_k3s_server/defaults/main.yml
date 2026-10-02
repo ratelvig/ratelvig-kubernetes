@@ -1,0 +1,4 @@
+---
+k3s_server_config_dir: "/etc/rancher/k3s"
+k3s_install_script_url: "https://get.k3s.io"
+k3s_server_service_name: "k3s"
