@@ -29,10 +29,8 @@ k3s_tls_sans:
   - "kubernetes.default.svc"
   - "kubernetes.ratelvig.local"
 
-# Components to disable (lightweight / homelab custom ingress)
-k3s_disable_components:
-  - servicelb
-  - traefik
+# Components to disable (lightweight / homelab configuration)
+k3s_disable_components: []
 
 # Kubeconfig local destination path (fetched to local workspace)
 k3s_kubeconfig_local_path: "{{ playbook_dir }}/../kubeconfig"

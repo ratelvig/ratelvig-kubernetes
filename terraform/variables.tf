@@ -113,7 +113,7 @@ variable "server_cores" {
 variable "server_memory" {
   type        = number
   description = "RAM allocated per server node in MB"
-  default     = 2048
+  default     = 3072
 }
 
 variable "server_swap" {

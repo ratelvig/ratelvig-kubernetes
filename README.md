@@ -152,72 +152,9 @@ After deployment finishes, the cluster `kubeconfig` is automatically saved to `.
 
 ---
 
-### Step 5: Deploy Ingress Controller & Portainer
+### Step 5: Deploy & Configure cert-manager with HashiCorp Vault PKI
 
-Since `traefik` and `servicelb` are disabled in K3s (`ansible/inventories/group_vars/k3s_cluster.yml`), Ingress-NGINX is deployed with `hostNetwork=true` to bind ports 80 and 443 directly on the host node.
-
-#### 1. Install Ingress-NGINX Controller
-
-```bash
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm repo update
-
-helm install ingress-nginx ingress-nginx/ingress-nginx \
-  --namespace ingress-nginx --create-namespace \
-  --set controller.hostNetwork=true \
-  --set controller.service.type=ClusterIP \
-  --set controller.kind=DaemonSet
-```
-
-#### 2. Create Namespace & TLS Secret for Portainer
-
-Combine your server certificate and CA certificate into a full chain bundle, then create the TLS secret:
-
-```bash
-# 1. Create full chain certificate (if not already created)
-cat crt.crt root_ca.crt > fullchain.crt
-
-# 2. Create the portainer namespace
-kubectl create namespace portainer
-
-# 3. Create the TLS secret
-kubectl create secret tls portainer-tls \
-  --cert=fullchain.crt \
-  --key=pk.crt \
-  -n portainer
-```
-
-#### 3. Deploy Portainer with Ingress
-
-Deploy Portainer behind Ingress-NGINX with TLS termination:
-
-```bash
-helm repo add portainer https://portainer.github.io/k8s/
-helm repo update
-
-helm upgrade --install portainer portainer/portainer \
-  -n portainer \
-  --set tls.existingSecret=portainer-tls \
-  --set service.type=ClusterIP \
-  --set ingress.enabled=true \
-  --set ingress.ingressClassName=nginx \
-  --set ingress.hosts[0].host=kubernetes.ratelvig.local \
-  --set ingress.hosts[0].paths[0].path="/" \
-  --set ingress.hosts[0].paths[0].pathType=Prefix \
-  --set ingress.tls[0].secretName=portainer-tls \
-  --set ingress.tls[0].hosts[0]=kubernetes.ratelvig.local
-```
-
-Access the Portainer UI securely at:
-```text
-https://kubernetes.ratelvig.local/
-```
-
----
-
-### Step 6: Deploy & Configure cert-manager with HashiCorp Vault PKI
-
-`cert-manager` is used to automate the issuance and renewal of TLS certificates using HashiCorp Vault's PKI secrets engine as a `ClusterIssuer`.
+`cert-manager` is used to automate the issuance and renewal of TLS certificates using HashiCorp Vault's PKI secrets engine as a `ClusterIssuer` (configured for the `ratelvig-kube.local` domain).
 
 #### 1. Install cert-manager
 
@@ -265,7 +202,7 @@ vault write auth/kubernetes/config \
   kubernetes_ca_cert="$K8S_CA" \
   disable_iss_validation=true
 
-# Bind Vault PKI role to cert-manager SA
+# Bind Vault PKI role to cert-manager SA (allowing *.ratelvig-kube.local domains)
 vault write auth/kubernetes/role/cert-manager-vault-role \
   bound_service_account_names=cert-manager-vault-sa \
   bound_service_account_namespaces=cert-manager \
@@ -289,7 +226,7 @@ kubectl get clusterissuer vault-issuer
 
 #### 4. Requesting TLS Certificates
 
-You can now automatically issue certificates from Vault:
+Certificates for `*.ratelvig-kube.local` can now be issued automatically:
 
 - **Via Ingress annotations**:
   ```yaml
@@ -300,9 +237,10 @@ You can now automatically issue certificates from Vault:
     annotations:
       cert-manager.io/cluster-issuer: vault-issuer
   spec:
+    ingressClassName: traefik
     tls:
       - hosts:
-          - app.ratelvig.local
+          - app.ratelvig-kube.local
         secretName: example-app-tls
   ...
   ```
@@ -319,10 +257,76 @@ You can now automatically issue certificates from Vault:
     issuerRef:
       name: vault-issuer
       kind: ClusterIssuer
-    commonName: app.ratelvig.local
+    commonName: app.ratelvig-kube.local
     dnsNames:
-      - app.ratelvig.local
+      - app.ratelvig-kube.local
   ```
+
+---
+
+### Step 6: Deploy Portainer with Automated TLS
+
+Traefik is enabled by default in K3s and handles routing and TLS termination using certificates issued by cert-manager.
+
+Portainer's TLS certificate is requested and managed automatically by adding the `cert-manager.io/cluster-issuer: vault-issuer` annotation to the Ingress:
+
+```bash
+helm repo add portainer https://portainer.github.io/k8s/
+helm repo update
+
+helm upgrade --install portainer portainer/portainer \
+  -n portainer --create-namespace \
+  --set service.type=ClusterIP \
+  --set ingress.enabled=true \
+  --set ingress.ingressClassName=traefik \
+  --set ingress.annotations."cert-manager\.io/cluster-issuer"=vault-issuer \
+  --set ingress.hosts[0].host=portainer.ratelvig-kube.local \
+  --set ingress.hosts[0].paths[0].path="/" \
+  --set ingress.hosts[0].paths[0].pathType=Prefix \
+  --set ingress.tls[0].secretName=portainer-tls \
+  --set ingress.tls[0].hosts[0]=portainer.ratelvig-kube.local
+```
+
+Access the Portainer UI securely at:
+```text
+https://portainer.ratelvig-kube.local/
+```
+
+---
+
+### Step 7: Deploy Argo CD
+
+Argo CD provides declarative GitOps continuous delivery for Kubernetes.
+
+1. **Add and update the Argo Helm repository**:
+   ```bash
+   helm repo add argo https://argoproj.github.io/argo-helm
+   helm repo update
+   ```
+
+2. **Deploy Argo CD using the provided values file (`kubernetes/argocd-values.yaml`)**:
+   ```bash
+   helm upgrade --install argocd argo/argo-cd \
+     --namespace argocd --create-namespace \
+     -f kubernetes/argocd-values.yaml
+   ```
+
+#### Retrieve Initial Admin Password
+
+To log in as `admin`, retrieve the auto-generated initial password:
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+```
+
+#### Access the Argo CD UI
+
+Access the Web UI at:
+```text
+https://argocd.ratelvig-kube.local/
+```
+- **Username**: `admin`
+- **Password**: *(retrieved above)*
 
 ---
 
